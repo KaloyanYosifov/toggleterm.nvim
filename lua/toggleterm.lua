@@ -74,6 +74,73 @@ local function smart_toggle(_, size, dir, direction)
   end
 end
 
+
+local function next_terminal()
+  local ui = require("toggleterm.ui")
+  local terminals = terms.get_all()
+
+  if not ui.find_open_windows() then
+      return
+  else
+    local oldTerminal
+    local newTerminal
+
+    -- count backwards from the end of the list
+    for i = #terminals, 1, -1 do
+      local term = terminals[i]
+      if term and ui.term_has_open_win(term) then
+          oldTerminal = term
+          newTerminal = terms.get(term.id - 1) or terms.get(1)
+      end
+    end
+
+    print("found");
+
+    if not oldTerminal or not newTerminal then
+        return
+    end
+
+    if oldTerminal.id == newTerminal.id then
+        return
+    end
+
+    oldTerminal:close()
+    newTerminal:open()
+  end
+end
+
+local function prev_terminal()
+  local ui = require("toggleterm.ui")
+  local terminals = terms.get_all()
+
+  if not ui.find_open_windows() then
+      return
+  else
+    local oldTerminal
+    local newTerminal
+
+    -- count backwards from the end of the list
+    for i = #terminals, 1, -1 do
+      local term = terminals[i]
+      if term and ui.term_has_open_win(term) then
+          oldTerminal = term
+          newTerminal = terms.get(term.id - 1) or terms.get(1)
+      end
+    end
+
+    if not oldTerminal or not newTerminal then
+        return
+    end
+
+    if oldTerminal.id == newTerminal.id then
+        return
+    end
+
+    oldTerminal:close()
+    newTerminal:open()
+  end
+end
+
 --- @param num number
 --- @param size number
 --- @param dir string
@@ -196,6 +263,15 @@ function M.toggle_command(args, count)
   end
   M.toggle(count, parsed.size, parsed.dir, parsed.direction)
 end
+
+function M.next_terminal(args, count)
+  next_terminal()
+end
+
+function M.prev_terminal(args, count)
+  prev_terminal()
+end
+
 
 --- If a count is provided we operate on the specific terminal buffer
 --- i.e. 2ToggleTerm => open or close Term 2
