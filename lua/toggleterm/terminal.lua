@@ -273,6 +273,18 @@ local function __handle_exit(term)
       if api.nvim_buf_is_loaded(term.bufnr) then
         api.nvim_buf_delete(term.bufnr, { force = true })
       end
+
+      -- open next terminal if we have one
+      if last_open_terminal_id then
+        vim.defer_fn(
+            function()
+                print("oke")
+                local next_terminal = M.get(last_open_terminal_id)
+                next_terminal:open()
+            end,
+            50
+        )
+      end
     end
   end
 end
