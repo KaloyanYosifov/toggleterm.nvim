@@ -102,7 +102,7 @@ local function next_terminal()
       local term = terminals[i]
       if term and ui.term_has_open_win(term) then
           oldTerminal = term
-          newTerminal = terms.get(term.id + 1) or terms.get(1)
+          newTerminal = terminals[i + 1] or terminals[1]
 
           break
       end
@@ -127,7 +127,7 @@ local function prev_terminal()
       local term = terminals[i]
       if term and ui.term_has_open_win(term) then
           oldTerminal = term
-          newTerminal = terms.get(term.id - 1) or terminals[#terminals]
+          newTerminal = terminals[i - 1] or terminals[#terminals]
 
           break
       end
