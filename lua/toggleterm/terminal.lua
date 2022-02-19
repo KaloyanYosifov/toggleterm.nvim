@@ -18,6 +18,7 @@ local newline_chr = is_windows and (is_pwsh and "\r" or "\r\n") or "\n"
 
 ---@type Terminal[]
 local terminals = {}
+local last_open_terminal_id = nil
 
 --- @class Terminal
 --- @field cmd string
@@ -72,9 +73,9 @@ end
 ---@param position number
 ---@return nil
 function M.get_toggled_id(position)
-  position = position or 1
-  local t = M.get_all()
-  return t[position] and t[position].id or nil
+  position = position or last_open_terminal_id or 1
+
+  return terminals[position] and terminals[position].id or nil
 end
 
 --- @param bufnr number
@@ -256,6 +257,17 @@ local function __handle_exit(term)
     if term.on_exit then
       term:on_exit(...)
     end
+
+    if last_open_terminal_id == term.id then
+        local terms = M.get_all()
+
+        if terms[1] then
+            last_open_terminal_id = terms[1].id
+        else
+            last_open_terminal_id = nil
+        end
+    end
+
     if term.close_on_exit then
       term:close()
       if api.nvim_buf_is_loaded(term.bufnr) then
@@ -348,6 +360,8 @@ function Terminal:open(size, direction, is_new)
   if self.on_open then
     self:on_open()
   end
+
+  last_open_terminal_id = self.id
 end
 
 ---Open if closed and close if opened
@@ -391,6 +405,7 @@ end
 ---@return boolean
 function M.get_or_create_term(num, dir, direction)
   local term = M.get(num)
+
   if term then
     return term, false
   end
