@@ -74,6 +74,18 @@ local function smart_toggle(_, size, dir, direction)
   end
 end
 
+local function switch_terminals(oldT, newT)
+    if not oldT or not newT then
+        return
+    end
+
+    if oldT.id == newT.id then
+        return
+    end
+
+    oldT:close()
+    newT:open()
+end
 
 local function next_terminal()
   local ui = require("toggleterm.ui")
@@ -96,16 +108,7 @@ local function next_terminal()
       end
     end
 
-    if not oldTerminal or not newTerminal then
-        return
-    end
-
-    if oldTerminal.id == newTerminal.id then
-        return
-    end
-
-    oldTerminal:close()
-    newTerminal:open()
+    switch_terminals(oldTerminal, newTerminal)
   end
 end
 
@@ -130,16 +133,7 @@ local function prev_terminal()
       end
     end
 
-    if not oldTerminal or not newTerminal then
-        return
-    end
-
-    if oldTerminal.id == newTerminal.id then
-        return
-    end
-
-    oldTerminal:close()
-    newTerminal:open()
+    switch_terminals(oldTerminal, newTerminal)
   end
 end
 
