@@ -1,43 +1,51 @@
 local api = vim.api
 local fn = vim.fn
-local fmt = string.format
+local opt = vim.opt
 
+local lazy = require("toggleterm.lazy")
+---@module "toggleterm.utils"
+local utils = lazy.require("toggleterm.utils")
+---@module "toggleterm.constants"
 local constants = require("toggleterm.constants")
-local colors = require("toggleterm.colors")
+---@module "toggleterm.config"
+local config = lazy.require("toggleterm.config")
+---@module "toggleterm.ui"
+local ui = lazy.require("toggleterm.ui")
+---@module "toggleterm.commandline"
+local commandline = lazy.require("toggleterm.commandline")
+---@module "toggleterm.command-complete"
+local command_complete = lazy.require("toggleterm.command-complete")
 
 local terms = require("toggleterm.terminal")
 
 local term_ft = constants.term_ft
-local SHADING_AMOUNT = constants.shading_amount
+local AUGROUP = "ToggleTermCommands"
 -----------------------------------------------------------
 -- Export
 -----------------------------------------------------------
-local M = {
-  __set_highlights = colors.set_highlights,
-}
+local M = {}
 
 --- only shade explicitly specified filetypes
-function M.__apply_colors()
+local function apply_colors()
   local ft = vim.bo.filetype
   ft = (not ft or ft == "") and "none" or ft
-  local allow_list = require("toggleterm.config").get("shade_filetypes") or {}
+  local allow_list = config.shade_filetypes or {}
   local is_enabled_ft = vim.tbl_contains(allow_list, ft)
   if vim.bo.buftype == "terminal" and is_enabled_ft then
     local _, term = terms.identify()
-    require("toggleterm.ui").hl_term(term)
+    ui.hl_term(term)
   end
 end
 
 local function setup_global_mappings()
-  local conf = require("toggleterm.config").get()
-  local mapping = conf.open_mapping
+  local mapping = config.open_mapping
   -- v:count defaults the count to 0 but if a count is passed in uses that instead
   if mapping then
     api.nvim_set_keymap("n", mapping, '<Cmd>execute v:count . "ToggleTerm"<CR>', {
       silent = true,
       noremap = true,
     })
-    if conf.insert_mappings then
+    if config.insert_mappings then
       api.nvim_set_keymap("i", mapping, "<Esc><Cmd>ToggleTerm<CR>", {
         silent = true,
         noremap = true,
@@ -48,11 +56,10 @@ end
 
 --Create a new terminal or close beginning from the last opened
 ---@param _ number
----@param size number
----@param dir string
----@param direction string
+---@param size number?
+---@param dir string?
+---@param direction string?
 local function smart_toggle(_, size, dir, direction)
-  local ui = require("toggleterm.ui")
   local terminals = terms.get_all()
   if not ui.find_open_windows() then
     -- Re-open the first terminal toggled
@@ -68,7 +75,8 @@ local function smart_toggle(_, size, dir, direction)
       end
     end
     if not target then
-      return require("toggleterm.utils").echomsg("Couldn't find a terminal to close")
+      utils.notify("Couldn't find a terminal to close", "error")
+      return
     end
     target:close()
   end
@@ -138,41 +146,48 @@ local function prev_terminal()
 end
 
 --- @param num number
---- @param size number
---- @param dir string
---- @param direction string
+--- @param size number?
+--- @param dir string?
+--- @param direction string?
 local function toggle_nth_term(num, size, dir, direction)
   local term = terms.get_or_create_term(num, dir, direction)
-  require("toggleterm.ui").update_origin_window(term.window)
+  ui.update_origin_window(term.window)
   term:toggle(size, direction)
 end
 
 ---Close the last window if only a terminal *split* is open
 ---@param term Terminal
+---@return boolean
 local function close_last_window(term)
   local only_one_window = fn.winnr("$") == 1
   if only_one_window and vim.bo[term.bufnr].filetype == term_ft then
-    if term:is_split() then
-      vim.cmd("keepalt bnext")
+    if term:is_split() then vim.cmd("keepalt bnext") end
+    return true
+  end
+  return false
+end
+
+local function handle_term_enter()
+  local _, term = terms.identify()
+  if term then
+    local closed = close_last_window(term)
+    if closed then return end
+    if config.persist_mode then
+      term:__restore_mode()
+    elseif config.start_in_insert then
+      term:set_mode(terms.mode.INSERT)
     end
   end
 end
 
-function M.handle_term_enter()
+local function handle_term_leave()
   local _, term = terms.identify()
-  if term then
-    close_last_window(term)
-  end
+  if not term then return end
+  if config.persist_mode then term:persist_mode() end
+  if term:is_float() then term:close() end
 end
 
-function M.handle_term_leave()
-  local _, term = terms.identify()
-  if term and term:is_float() then
-    term:close()
-  end
-end
-
-function M.on_term_open()
+local function on_term_open()
   local id, term = terms.identify()
   if not term then
     terms.Terminal
@@ -180,17 +195,19 @@ function M.on_term_open()
         id = id,
         bufnr = api.nvim_get_current_buf(),
         window = api.nvim_get_current_win(),
+        highlights = config.highlights,
         job_id = vim.b.terminal_job_id,
-        direction = require("toggleterm.ui").guess_direction(),
+        direction = ui.guess_direction(),
       })
       :__resurrect()
   end
+  ui.set_winbar(term)
 end
 
 function M.exec_command(args, count)
   vim.validate({ args = { args, "string" } })
   if not args:match("cmd") then
-    return require("toggleterm.utils").echomsg(
+    return utils.echomsg(
       "TermExec requires a cmd specified using the syntax cmd='ls -l' e.g. TermExec cmd='ls -l'",
       "ErrorMsg"
     )
@@ -208,12 +225,12 @@ function M.exec_command(args, count)
 end
 
 --- @param cmd string
---- @param num number
---- @param size number
---- @param dir string
---- @param direction string
---- @param go_back boolean whether or not to return to original window
---- @param open boolean whether or not to open terminal window
+--- @param num number?
+--- @param size number?
+--- @param dir string?
+--- @param direction string?
+--- @param go_back boolean? whether or not to return to original window
+--- @param open boolean? whether or not to open terminal window
 function M.exec(cmd, num, size, dir, direction, go_back, open)
   vim.validate({
     cmd = { cmd, "string" },
@@ -227,19 +244,11 @@ function M.exec(cmd, num, size, dir, direction, go_back, open)
   num = (num and num >= 1) and num or terms.get_toggled_id()
   open = open == nil or open
   local term, created = terms.get_or_create_term(num, dir, direction)
-  if not term:is_open() then
-    term:open(size, direction, created)
-  end
-  if not created and dir then
-    term:change_dir(dir)
-  end
+  if not term:is_open() then term:open(size, direction, created) end
+  if not created and dir then term:change_dir(dir) end
   -- going back from floating window closes it
-  if term:is_float() then
-    go_back = false
-  end
-  if go_back == nil then
-    go_back = true
-  end
+  if term:is_float() then go_back = false end
+  if go_back == nil then go_back = true end
   if not open then
     term:close()
     go_back = false
@@ -247,16 +256,126 @@ function M.exec(cmd, num, size, dir, direction, go_back, open)
   term:send(cmd, go_back)
 end
 
+--- @param selection_type string
+--- @param trim_spaces boolean
+--- @param cmd_data table<string, any>
+function M.send_lines_to_terminal(selection_type, trim_spaces, cmd_data)
+  local terminal_id = cmd_data.args
+  -- trim_spaces defines if we should trim the spaces from lines which are sent to the terminal
+  trim_spaces = trim_spaces == nil or trim_spaces
+
+  -- If no terminal id provided fall back to the default
+  terminal_id = tonumber(terminal_id) or 1
+
+  vim.validate({
+    selection_type = { selection_type, "string", true },
+    trim_spaces = { trim_spaces, "boolean", true },
+    terminal_id = { terminal_id, "number", true },
+  })
+
+  -- Window number from where we are calling the function (needed so we can get back to it automatically)
+  local current_window = api.nvim_get_current_win()
+  -- Line texts - these will be sent over to the terminal one by one
+  local lines = {}
+  -- Beginning of the selection: line number, column number
+  local b_line, b_col
+
+  local function line_selection(mode)
+    local start_char, end_char
+    if mode == "visual" then
+      start_char = "'<"
+      end_char = "'>"
+    elseif mode == "motion" then
+      start_char = "'["
+      end_char = "']"
+    end
+
+    -- Get the start and the end of the selection
+    local start_line, start_col = unpack(fn.getpos(start_char), 2, 3)
+    local end_line, end_col = unpack(fn.getpos(end_char), 2, 3)
+    local selected_lines = api.nvim_buf_get_lines(0, start_line - 1, end_line, false)
+    return {
+      start_pos = { start_line, start_col },
+      end_pos = { end_line, end_col },
+      selected_lines = selected_lines,
+    }
+  end
+
+  local function get_visual_selection(res)
+    -- Return the text of the precise visual selection
+
+    local vis_mode = fn.visualmode()
+
+    if vis_mode == "V" then
+      -- line-visual
+      -- return lines encompassed by the selection; already in res object
+      return res.selected_lines
+    elseif vis_mode == "v" then
+      -- regular-visual
+      -- return the buffer text encompassed by the selection
+      local start_line, start_col = unpack(res.start_pos)
+      local end_line, end_col = unpack(res.end_pos)
+      -- exclude the last char in text if "selection" is set to "exclusive"
+      if opt.selection._value == "exclusive" then end_col = end_col - 1 end
+      return api.nvim_buf_get_text(0, start_line - 1, start_col - 1, end_line - 1, end_col, {})
+    elseif vis_mode == "\x16" then
+      -- block-visual
+      -- return the lines encompassed by the selection, each truncated by the
+      -- start and end columns
+      local _, start_col = unpack(res.start_pos)
+      local _, end_col = unpack(res.end_pos)
+      -- exclude the last col of the block if "selection" is set to "exclusive"
+      if opt.selection._value == "exclusive" then end_col = end_col - 1 end
+      -- exchange start and end columns for proper substring indexing if needed
+      -- e.g. instead of str:sub(10, 5), do str:sub(5, 10)
+      if start_col > end_col then
+        start_col, end_col = end_col, start_col
+      end
+      -- iterate over lines, truncating each one
+      local block_lines = {}
+      for i, v in ipairs(res.selected_lines) do
+        block_lines[i] = v:sub(start_col, end_col)
+      end
+      return block_lines
+    end
+  end
+
+  if selection_type == "single_line" then
+    b_line, b_col = unpack(api.nvim_win_get_cursor(0))
+    table.insert(lines, fn.getline(b_line))
+  elseif selection_type == "visual_lines" then
+    local res = line_selection("visual")
+    b_line, b_col = unpack(res.start_pos)
+    lines = res.selected_lines
+  elseif selection_type == "visual_selection" then
+    local res = line_selection("visual")
+    b_line, b_col = unpack(res.start_pos)
+    lines = get_visual_selection(res)
+  end
+
+  -- If no lines are fetched we don't need to do anything
+  if #lines == 0 or lines == nil then return end
+
+  -- Send each line to the terminal after some preprocessing if required
+  for _, v in ipairs(lines) do
+    -- Trim whitespace from the strings
+    v = trim_spaces and v:gsub("^%s+", ""):gsub("%s+$", "") or v
+    M.exec(v, terminal_id)
+  end
+
+  -- Jump back with the cursor where we were at the begiining of the selection
+  api.nvim_set_current_win(current_window)
+  api.nvim_win_set_cursor(current_window, { b_line, b_col })
+end
+
 function M.toggle_command(args, count)
-  local parsed = require("toggleterm.commandline").parse(args)
+  local parsed = commandline.parse(args)
   vim.validate({
     size = { parsed.size, "number", true },
     dir = { parsed.dir, "string", true },
     direction = { parsed.direction, "string", true },
   })
-  if parsed.size then
-    parsed.size = tonumber(parsed.size)
-  end
+  if parsed.size then parsed.size = tonumber(parsed.size) end
   M.toggle(count, parsed.size, parsed.dir, parsed.direction)
 end
 
@@ -269,6 +388,14 @@ function M.prev_terminal(args, count)
 end
 
 
+function _G.___toggleterm_winbar_click(id)
+  if id then
+    local term = terms.get_or_create_term(id)
+    if not term then return end
+    term:toggle()
+  end
+end
+
 --- If a count is provided we operate on the specific terminal buffer
 --- i.e. 2ToggleTerm => open or close Term 2
 --- if the count is 1 we use a heuristic which is as follows
@@ -277,9 +404,9 @@ end
 --- this can be used with the count commands to allow specific operations
 --- per term or mass actions
 --- @param count number
---- @param size number
---- @param dir string
---- @param direction string
+--- @param size number?
+--- @param dir string?
+--- @param direction string?
 function M.toggle(count, size, dir, direction)
   vim.validate({ count = { count, "number", true }, size = { size, "number", true } })
   -- TODO this should toggle the specified term if any count is passed in
@@ -295,7 +422,6 @@ end
 -- If no terminal exists it will do nothing
 -- If any terminal exists but is not open it will be open
 function M.toggle_all(force)
-  local ui = require("toggleterm.ui")
   local terminals = terms.get_all()
 
   if force and ui.find_open_windows() then
@@ -315,58 +441,134 @@ function M.toggle_all(force)
   end
 end
 
+---@param _ ToggleTermConfig
+local function setup_autocommands(_)
+  api.nvim_create_augroup(AUGROUP, { clear = true })
+  local toggleterm_pattern = "term://*#toggleterm#*"
+
+  api.nvim_create_autocmd("BufEnter", {
+    pattern = toggleterm_pattern,
+    group = AUGROUP,
+    nested = true, -- this is necessary in case the buffer is the last
+    callback = handle_term_enter,
+  })
+
+  api.nvim_create_autocmd("WinLeave", {
+    pattern = toggleterm_pattern,
+    group = AUGROUP,
+    callback = handle_term_leave,
+  })
+
+  api.nvim_create_autocmd("TermOpen", {
+    pattern = toggleterm_pattern,
+    group = AUGROUP,
+    callback = on_term_open,
+  })
+
+  api.nvim_create_autocmd("ColorScheme", {
+    group = AUGROUP,
+    callback = function()
+      config.reset_highlights()
+      for _, term in pairs(terms.get_all()) do
+        if api.nvim_win_is_valid(term.window) then
+          api.nvim_win_call(term.window, function() ui.hl_term(term) end)
+        end
+      end
+    end,
+  })
+
+  api.nvim_create_autocmd("TermOpen", {
+    group = AUGROUP,
+    pattern = "term://*",
+    callback = apply_colors,
+  })
+end
+
+---------------------------------------------------------------------------------
+-- Commands
+---------------------------------------------------------------------------------
+
+---@param callback fun(t: Terminal?)
+local function get_subject_terminal(callback)
+  local items = terms.get_all(true)
+  if #items == 0 then return vim.notify("No toggleterms are open yet", "info") end
+
+  vim.ui.select(items, {
+    prompt = "Please select a terminal to name",
+    format_item = function(term) return term.id .. ": " .. term:_display_name() end,
+  }, function(term)
+    if not term then return end
+    callback(term)
+  end)
+end
+
+---@param name string
+---@param term Terminal
+local function set_term_name(name, term) term.display_name = name end
+
+local function request_term_name(term)
+  vim.ui.input({ prompt = "Please set a name for the terminal" }, function(name)
+    if name and #name > 0 then set_term_name(name, term) end
+  end)
+end
+
+local function setup_commands()
+  local cmd = api.nvim_create_user_command
+  -- Count is 0 by default
+  cmd(
+    "TermExec",
+    function(opts) M.exec_command(opts.args, opts.count) end,
+    { count = true, complete = command_complete.term_exec_complete, nargs = "*" }
+  )
+
+  cmd(
+    "ToggleTerm",
+    function(opts) M.toggle_command(opts.args, opts.count) end,
+    { count = true, complete = command_complete.toggle_term_complete, nargs = "*" }
+  )
+
+  cmd("ToggleTermToggleAll", function(opts) M.toggle_all(opts.bang) end, { bang = true })
+
+  cmd(
+    "ToggleTermSendVisualLines",
+    function(args) M.send_lines_to_terminal("visual_lines", true, args) end,
+    { range = true, nargs = "?" }
+  )
+
+  cmd(
+    "ToggleTermSendVisualSelection",
+    function(args) M.send_lines_to_terminal("visual_selection", true, args) end,
+    { range = true, nargs = "?" }
+  )
+
+  cmd(
+    "ToggleTermSendCurrentLine",
+    function(args) M.send_lines_to_terminal("single_line", true, args) end,
+    { nargs = "?" }
+  )
+
+  cmd("ToggleTermSetName", function(opts)
+    local no_count = not opts.count or opts.count < 1
+    local no_name = opts.args == ""
+    if no_count and no_name then
+      get_subject_terminal(request_term_name)
+    elseif no_name then
+      request_term_name()
+    elseif no_count then
+      get_subject_terminal(function(t) set_term_name(opts.args, t) end)
+    else
+      local term = terms.get(opts.count)
+      if not term then return end
+      set_term_name(opts.args, term)
+    end
+  end, { nargs = "?" })
+end
+
 function M.setup(user_prefs)
-  local conf = require("toggleterm.config").set(user_prefs)
+  local conf = config.set(user_prefs)
   setup_global_mappings()
-  local autocommands = {
-    {
-      "WinEnter",
-      "term://*toggleterm*",
-      "nested", -- this is necessary in case the buffer is the last
-      "lua require'toggleterm'.handle_term_enter()",
-    },
-    {
-      "WinLeave",
-      "term://*toggleterm*",
-      "lua require'toggleterm'.handle_term_leave()",
-    },
-    {
-      "TermOpen",
-      "term://*toggleterm*",
-      "lua require'toggleterm'.on_term_open()",
-    },
-  }
-  if conf.shade_terminals then
-    local is_bright = colors.is_bright_background()
-
-    -- if background is light then darken the terminal a lot more to increase contrast
-    local factor = conf.shading_factor
-        and type(conf.shading_factor) == "number"
-        and conf.shading_factor
-      or (is_bright and 3 or 1)
-
-    local amount = factor * SHADING_AMOUNT
-    colors.set_highlights(amount)
-
-    vim.list_extend(autocommands, {
-      {
-        -- call set highlights once on vim start
-        -- as this plugin might not be initialised till
-        -- after the colorscheme autocommand has fired
-        -- reapply highlights when the colorscheme
-        -- is re-applied
-        "ColorScheme",
-        "*",
-        fmt("lua require'toggleterm'.__set_highlights(%d)", amount),
-      },
-      {
-        "TermOpen",
-        "term://*",
-        "lua require('toggleterm').__apply_colors()",
-      },
-    })
-  end
-  require("toggleterm.utils").create_augroups({ ToggleTerminal = autocommands })
+  setup_autocommands(conf)
+  setup_commands()
 end
 
 return M

@@ -52,28 +52,40 @@
 
 <!-- panvimdoc-ignore-end -->
 
-## Notices
+### Winbar (Experimental/Nightly ONLY)
 
-- 15/09/2021: `window` layout was deprecated in favour of the `tab` layout
-- **23/03/2021**: `TermExec` command syntax has been refactored to use `TermExec cmd='my-command'`
+<!-- panvimdoc-ignore-start -->
+
+<img width="1728" alt="image" src="https://user-images.githubusercontent.com/22454918/179199998-75ec16cb-8271-490e-925f-6c82c50ffc5d.png">
+
+<!-- panvimdoc-ignore-end -->
 
 ## Requirements
 
-This plugin only works in _Neovim 0.5_ or newer.
+This plugin only works in _Neovim 0.7_ or newer.
 
 ## Installation
 
 Using packer in lua
 
 ```lua
-use {"akinsho/toggleterm.nvim"}
+use {"akinsho/toggleterm.nvim", tag = 'v2.*', config = function()
+  require("toggleterm").setup()
+end}
 ```
 
 Using vim-plug in vimscript
 
 ```vim
-Plug 'akinsho/toggleterm.nvim'
+Plug 'akinsho/toggleterm.nvim', {'tag' : 'v2.*'}
 ```
+
+You can/should specify a tag for the current major version of the plugin, to avoid breaking changes as this plugin evolves.
+To use a version of this plugin compatible with nvim versions less than 0.7 please use the tag `v1.*`.
+
+## Notices
+
+- **28/07/1990** - If using `persist_mode` terminal mappings should be changed to use `wincmd` instead otherwise persist mode will not work correctly. See [here](#terminal-window-mappings) for details.
 
 ## Why?
 
@@ -81,7 +93,7 @@ Neovim's terminal is a very cool, but not super ergonomic tool to use. I find th
 set a process going and leave it to continue to run in the background. I don't need to see it all the time.
 I just need to be able to refer back to it at intervals. I also sometimes want to create a new terminal and run a few commands.
 
-Sometimes I want these side by side, and I _really_ want these terminals to be easy to access and not clutter my buffer list.
+Sometimes I want these side by side, and I _really_ want these terminals to be easy to access.
 I also want my terminal to look different from non-terminal buffers so I use `winhighlight` to darken them based on the `Normal`
 background colour.
 
@@ -94,22 +106,37 @@ All I really want this plugin to be is what I described above. A wrapper around 
 It basically (almost) does all that I need it to.
 
 I won't be turning this into a REPL plugin or doing a bunch of complex stuff.
-If you find any issues, _please_ consider a _pull request_ not an issue. I won't be breaking my back to maintain
-this especially if it isn't broken "on my machine". I'm also going to be pretty conservative about what I add.
+If you find any issues, _please_ consider a _pull request_ not an issue.
+I'm also going to be pretty conservative about what I add.
 
 ### Setup
 
 This plugin must be explicitly enabled by using `require("toggleterm").setup{}`
 
-Setting the _open_mapping_ key to use for toggling the terminal(s) will setup mappings for _normal_ mode
+Setting the `open_mapping` key to use for toggling the terminal(s) will setup mappings for _normal_ mode
 If you prefix the mapping with a number that particular terminal will be opened.
 
-If you set the _insert_mappings_ key to true, the mapping will also take effect in insert mode; similarly setting _terminal_mappings_ to will have the mappings take effect in the opened terminal.
+If you set the `insert_mappings` key to true, the mapping will also take effect in insert mode; similarly setting `terminal_mappings` to will have the mappings take effect in the opened terminal.
 
 However you will not be able to use a count with the open mapping in terminal and insert modes. You can create buffer specific mappings to exit terminal mode and then use a count with the open mapping. Check _Terminal window mappings_ for an example of how to do this.
 
-**NOTE**: Please ensure you have set `hidden` in your neovim config, otherwise the terminals will be discarded
-when closed.
+alternatively you can do this manually (not recommended but, your prerogative)
+
+```vim
+" set
+autocmd TermEnter term://*toggleterm#*
+      \ tnoremap <silent><c-t> <Cmd>exe v:count1 . "ToggleTerm"<CR>
+
+" By applying the mappings this way you can pass a count to your
+" mapping to open a specific window.
+" For example: 2<C-t> will open terminal 2
+nnoremap <silent><c-t> <Cmd>exe v:count1 . "ToggleTerm"<CR>
+inoremap <silent><c-t> <Esc><Cmd>exe v:count1 . "ToggleTerm"<CR>
+```
+
+**NOTE**: Please ensure you have set `hidden` in your neovim config, otherwise the terminals will be discarded when closed.
+
+**WARNING**: Please do not copy and paste this configuration! It is here to show what options are available. It is not written be used as is.
 
 ```lua
 require("toggleterm").setup{
@@ -124,15 +151,33 @@ require("toggleterm").setup{
   open_mapping = [[<c-\>]],
   on_open = fun(t: Terminal), -- function to run when the terminal opens
   on_close = fun(t: Terminal), -- function to run when the terminal closes
+  on_stdout = fun(t: Terminal, job: number, data: string[], name: string) -- callback for processing output on stdout
+  on_stderr = fun(t: Terminal, job: number, data: string[], name: string) -- callback for processing output on stderr
+  on_exit = fun(t: Terminal, job: number, exit_code: number, name: string) -- function to run when terminal process exits
   hide_numbers = true, -- hide the number column in toggleterm buffers
   shade_filetypes = {},
-  shade_terminals = true,
+  highlights = {
+    -- highlights which map to a highlight group name and a table of it's values
+    -- NOTE: this is only a subset of values, any group placed here will be set for the terminal window split
+    Normal = {
+      guibg = "<VALUE-HERE>",
+    },
+    NormalFloat = {
+      link = 'Normal'
+    },
+    FloatBorder = {
+      guifg = "<VALUE-HERE>",
+      guibg = "<VALUE-HERE>",
+    },
+  },
+  shade_terminals = true, -- NOTE: this option takes priority over highlights specified so if you specify Normal highlights you should set this to false
   shading_factor = '<number>', -- the degree by which to darken to terminal colour, default: 1 for dark backgrounds, 3 for light
   start_in_insert = true,
   insert_mappings = true, -- whether or not the open mapping applies in insert mode
   terminal_mappings = true, -- whether or not the open mapping applies in the opened terminals
   persist_size = true,
-  direction = 'vertical' | 'horizontal' | 'window' | 'float',
+  persist_mode = true, -- if set to true (default) the previous terminal mode will be remembered
+  direction = 'vertical' | 'horizontal' | 'tab' | 'float',
   close_on_exit = true, -- close the terminal window when the process exits
   shell = vim.o.shell, -- change the default shell
   -- This field is only relevant if direction is set to 'float'
@@ -142,36 +187,21 @@ require("toggleterm").setup{
     -- the 'curved' border is a custom border type
     -- not natively supported but implemented in this plugin.
     border = 'single' | 'double' | 'shadow' | 'curved' | ... other options supported by win open
+    -- like `size`, width and height can be a number or function which is passed the current terminal
     width = <value>,
     height = <value>,
     winblend = 3,
-    highlights = {
-      border = "Normal",
-      background = "Normal",
-    }
-  }
+  },
+  winbar = {
+    enabled = false,
+    name_formatter(term) --  term: Terminal
+      return term.name
+    end
+  },
 }
 ```
 
-alternatively you can do this manually (not recommended but, your prerogative)
-
-```vim
-" set
-let g:toggleterm_terminal_mapping = '<C-t>'
-" or manually...
-autocmd TermEnter term://*toggleterm#*
-      \ tnoremap <silent><c-t> <Cmd>exe v:count1 . "ToggleTerm"<CR>
-
-" By applying the mappings this way you can pass a count to your
-" mapping to open a specific window.
-" For example: 2<C-t> will open terminal 2
-nnoremap <silent><c-t> <Cmd>exe v:count1 . "ToggleTerm"<CR>
-inoremap <silent><c-t> <Esc><Cmd>exe v:count1 . "ToggleTerm"<CR>
-```
-
 ### Usage
-
-This plugin provides 2 commands
 
 ### `ToggleTerm`
 
@@ -218,6 +248,8 @@ _NOTE:_ the `dir` argument can also be _optionally_ quoted if it contains spaces
 The `cmd` and `dir` arguments can also expand the same special keywords as `:h expand` e.g.
 `TermExec cmd="echo %"` will be expanded to `TermExec cmd="echo /file/example"`
 
+These special keywords can be escaped using the `\` character, if you want to print character as is.
+
 The `size` and `direction` arguments are like the `size` and `direction` arguments of `ToggleTerm`.
 
 By default focus is returned to the original window after executing the command
@@ -226,6 +258,38 @@ By default focus is returned to the original window after executing the command
 You can send commands to a terminal without opening its window by using the `open=0` argument.
 
 see `:h expand()` for more details
+
+### Sending lines to the terminal
+
+You can "send lines" to the toggled terminals with the following commands:
+
+- `:ToggleTermSendCurrentLine <T_ID>`: sends the whole line where you are currently standing with your cursor
+- `:ToggleTermSendVisualLines <T_ID>`: sends all of the (whole) lines in your visual selection
+- `:ToggleTermSendVisualSelection <T_ID>`: sends only the visually selected text (this can be a block of text or a selection in a single line)
+
+(`<T_ID` is an optional terminal ID parameter which defines where should we send the lines.
+If the parameter is not provided, then the default is the `first terminal`)
+
+<!-- panvimdoc-ignore-start -->
+
+Example:
+
+<!-- panvimdoc-ignore-end -->
+
+<!-- panvimdoc-ignore-start -->
+
+<video src="https://user-images.githubusercontent.com/18753533/159889865-724becab-877b-45a2-898e-820afd6a4ee1.mov" controls="controls" muted="muted" height="640px"></video>
+
+<!-- panvimdoc-ignore-end -->
+
+### ToggleTermSetName
+
+This function allows setting a display name for a terminal. This name is primarily used inside of the winbar, and can be a more descriptive way
+to remember which terminal is for what.
+
+You can map this to a key and call it with a count which will then prompt you a name for the terminal with the matching ID.
+Alternatively you can call it with just the name e.g. `:ToggleTermSetName work<CR>` this will the prompt you for which terminal it should apply to.
+Lastly you can call it without any arguments and it will prompt you for which terminal it should apply to then prompt you for the name to use.
 
 ### Set terminal shading
 
@@ -270,13 +334,13 @@ once toggled, whilst still keeping it open.
 
 ```lua
 function _G.set_terminal_keymaps()
-  local opts = {noremap = true}
-  vim.api.nvim_buf_set_keymap(0, 't', '<esc>', [[<C-\><C-n>]], opts)
-  vim.api.nvim_buf_set_keymap(0, 't', 'jk', [[<C-\><C-n>]], opts)
-  vim.api.nvim_buf_set_keymap(0, 't', '<C-h>', [[<C-\><C-n><C-W>h]], opts)
-  vim.api.nvim_buf_set_keymap(0, 't', '<C-j>', [[<C-\><C-n><C-W>j]], opts)
-  vim.api.nvim_buf_set_keymap(0, 't', '<C-k>', [[<C-\><C-n><C-W>k]], opts)
-  vim.api.nvim_buf_set_keymap(0, 't', '<C-l>', [[<C-\><C-n><C-W>l]], opts)
+  local opts = {buffer = 0}
+  vim.keymap.set('t', '<esc>', [[<C-\><C-n>]], opts)
+  vim.keymap.set('t', 'jk', [[<C-\><C-n>]], opts)
+  vim.keymap.set('t', '<C-h>', [[<Cmd>wincmd h<CR>]], opts)
+  vim.keymap.set('t', '<C-j>', [[<Cmd>wincmd j<CR>]], opts)
+  vim.keymap.set('t', '<C-k>', [[<Cmd>wincmd k<CR>]], opts)
+  vim.keymap.set('t', '<C-l>', [[<Cmd>wincmd l<CR>]], opts)
 end
 
 -- if you only want these mappings for toggle term use term://*toggleterm#* instead
@@ -299,16 +363,19 @@ Terminal:new {
   direction = string -- the layout for the terminal, same as the main config options
   dir = string -- the directory for the terminal
   close_on_exit = bool -- close the terminal window when the process exits
+  highlights = table -- a table with highlights
+  env = table -- key:value table with environmental variables passed to jobstart()
+  clear_env = bool -- use only environmental variables from `env`, passed to jobstart()
   on_open = fun(t: Terminal) -- function to run when the terminal opens
   on_close = fun(t: Terminal) -- function to run when the terminal closes
   -- callbacks for processing the output
-  on_stdout = fun(job: number, exit_code: number, type: string)
-  on_stderr = fun(job: number, data: string[], name: string)
-  on_exit = fun(job: number, data: string[], name: string)
+  on_stdout = fun(t: Terminal, job: number, data: string[], name: string) -- callback for processing output on stdout
+  on_stderr = fun(t: Terminal, job: number, data: string[], name: string) -- callback for processing output on stderr
+  on_exit = fun(t: Terminal, job: number, exit_code: number, name: string) -- function to run when terminal process exits
 }
 ```
 
-#### Usage
+#### Custom terminal usage
 
 ```lua
 local Terminal  = require('toggleterm.terminal').Terminal
@@ -321,10 +388,12 @@ end
 vim.api.nvim_set_keymap("n", "<leader>g", "<cmd>lua _lazygit_toggle()<CR>", {noremap = true, silent = true})
 ```
 
-This will create a new terminal that runs the specified command once toggled
-if the `hidden` key is set to true. This terminal will not be toggled by normal toggleterm
-commands such as `:ToggleTerm` or the open mapping. It will only open and close in response to a user
-specified mapping like the above.
+This will create a new terminal but the specified command is not being run immediately.
+The command will run once the terminal is opened. Alternatively `term:spawn()` can be used
+to start the command in a background buffer without opening a terminal window yet. If the
+`hidden` key is set to true, this terminal will not be toggled by normal toggleterm commands
+such as `:ToggleTerm` or the open mapping. It will only open and close by using the returned
+terminal object. A mapping for toggling the terminal can be set as in the example above.
 
 Alternatively the terminal can be specified with a count which is the number that can be used
 to trigger this specific terminal. This can then be triggered using the current count e.g.
@@ -390,7 +459,7 @@ command! -count=1 TermGitPushF lua require'toggleterm'.exec("git push -f", <coun
 | ---------- | --------- |
 | vertical   | ✔️        |
 | horizontal | ✔️        |
-| window     | ✖️        |
+| tab        | ✖️        |
 | float      | ✖️        |
 
 In your first terminal, you need to leave the `TERMINAL` mode using <kbd>C-\\</kbd><kbd>C-N</kbd> which can be remapped to <kbd>Esc</kbd> for ease of use.

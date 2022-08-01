@@ -13,26 +13,19 @@ function M.echomsg(msg, hl)
   api.nvim_echo({ { msg, hl } }, true, {})
 end
 
----Inform a user about something
----@param msg string
----@param level 'error' | 'info' | 'warn'
-function M.notify(msg, level)
-  level = level and levels[level:upper()] or levels.INFO
-  vim.notify(fmt("[toggleterm]: %s", msg), level)
+function M.is_nightly()
+  local v = vim.version()
+  return v.minor >= 8
 end
 
---- Source: https://teukka.tech/luanvim.html
---- @param definitions table<string,table>
-function M.create_augroups(definitions)
-  for group_name, definition in pairs(definitions) do
-    vim.cmd("augroup " .. group_name)
-    vim.cmd("autocmd!")
-    for _, def in pairs(definition) do
-      local command = table.concat(vim.tbl_flatten({ "autocmd", def }), " ")
-      vim.cmd(command)
-    end
-    vim.cmd("augroup END")
-  end
+---@alias error_types 'error' | 'info' | 'warn'
+---Inform a user about something
+---@param msg string
+---@param level error_types
+function M.notify(msg, level)
+  local err = level:upper()
+  level = level and levels[err] or levels.INFO
+  vim.notify(fmt("[toggleterm]: %s", msg), level)
 end
 
 ---@private
@@ -41,10 +34,27 @@ end
 function M.git_dir()
   local gitdir = fn.system(fmt("git -C %s rev-parse --show-toplevel", fn.expand("%:p:h")))
   local isgitdir = fn.matchstr(gitdir, "^fatal:.*") == ""
-  if not isgitdir then
-    return
-  end
+  if not isgitdir then return end
   return vim.trim(gitdir)
 end
+
+---@param str string|nil
+---@return boolean
+function M.str_is_empty(str) return str == nil or str == "" end
+
+---@param tbl table
+---@return table
+function M.tbl_filter_empty(tbl)
+  return vim.tbl_filter(
+    ---@param str string|nil
+    function(str) return not M.str_is_empty(str) end,
+    tbl
+  )
+end
+
+--- Concats a table ignoring empty entries
+---@param tbl table
+---@param sep string
+function M.concat_without_empty(tbl, sep) return table.concat(M.tbl_filter_empty(tbl), sep) end
 
 return M
